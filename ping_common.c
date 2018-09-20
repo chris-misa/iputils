@@ -711,6 +711,11 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 			msg.msg_controllen = sizeof(ans_data);
 
 			cc = recvmsg(sock->fd, &msg, polling);
+
+/************ gettimeofday right after recv ping rather than reading timestamps *****/
+      gettimeofday(&recv_time, NULL);
+      recv_timep = &recv_time;
+
 			polling = MSG_DONTWAIT;
 
 			if (cc < 0) {
@@ -731,6 +736,8 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 				}
 			} else {
 
+/******** original code to read timestamps *********/
+/*
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
 					if (c->cmsg_level != SOL_SOCKET ||
@@ -748,6 +755,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 						gettimeofday(&recv_time, NULL);
 					recv_timep = &recv_time;
 				}
+*/
 
 				not_ours = fset->parse_reply(sock, &msg, cc, addrbuf, recv_timep);
 			}
