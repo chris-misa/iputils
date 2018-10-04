@@ -861,6 +861,7 @@ restamp:
 			return 1;
 		}
 		if (timing) {
+			/*
 			if (triptime >= 100000)
 				printf(" time=%ld ms", (triptime+500)/1000);
 			else if (triptime >= 10000)
@@ -872,6 +873,9 @@ restamp:
 			else
 				printf(" time=%ld.%03ld ms", triptime/1000,
 				       triptime%1000);
+	                */
+			printf(" time=%ld.%03ld ms", triptime/1000,
+			       triptime%1000);
 		}
 		if (dupflag)
 			printf(" (DUP!)");
