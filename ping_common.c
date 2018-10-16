@@ -493,6 +493,10 @@ void setup(socket_st *sock)
 	int hold;
 	struct timeval tv;
 	sigset_t sset;
+	struct ifreq hwtstamp;
+	struct hwtstamp_config hwconfig;
+	char *interface = "eno1";
+	int res;
 
 	if ((options & F_FLOOD) && !(options & F_INTERVAL))
 		interval = 0;
@@ -522,10 +526,41 @@ void setup(socket_st *sock)
 #endif
 #ifdef SO_TIMESTAMPING
 	// Hardcode this for now
-	so_timestamping_flags = SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RAW_HARDWARE;
+	so_timestamping_flags = SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_RAW_HARDWARE | SOF_TIMESTAMPING_SOFTWARE;
 	if (setsockopt(sock->fd, SOL_SOCKET, SO_TIMESTAMPING, &so_timestamping_flags, sizeof(so_timestamping_flags)) < 0)
 		fprintf(stderr, "Warning: no SO_TIMESTAMPING support\n");
 	fprintf(stderr, "Set SO_TIMESTAMPING\n");
+
+	
+	// Procedure adapted from timestamping.c linux kernel selftest to start hw time stamping on a device
+	memset(&hwtstamp, 0, sizeof(hwtstamp));
+	strncpy(hwtstamp.ifr_name, interface, sizeof(hwtstamp.ifr_name));
+	hwtstamp.ifr_data = (void *)&hwconfig;
+	memset(&hwconfig, 0, sizeof(hwconfig));
+	hwconfig.tx_type = HWTSTAMP_TX_ON;
+	hwconfig.rx_filter = HWTSTAMP_FILTER_ALL;
+	printf("SIOCSHWTSTAMP: wanted tx_type %d, rx_filter %d\n", hwconfig.tx_type, hwconfig.rx_filter);
+	if (ioctl(sock->fd, SIOCSHWTSTAMP, &hwtstamp) < 0) {
+		fprintf(stderr, "Warning: failed to set SIOCSHWTSTAMP: ");
+		switch (errno) {
+			case EBADF:
+				fprintf(stderr, "Bad file descriptor\n");
+				break;
+			case EFAULT:
+				fprintf(stderr, "Bad memory area\n");
+				break;
+			case EINVAL:
+				fprintf(stderr, "EINVAL\n");
+				break;
+			case ERANGE:
+				fprintf(stderr, "ERANGE\n");
+				break;
+			default:
+				fprintf(stderr, "unknown: %d\n", errno);
+				break;
+		}
+	}
+	printf("SIOCSHWTSTAMP: got tx_type %d, rx_filter %d\n", hwconfig.tx_type, hwconfig.rx_filter);
 #endif
 #ifdef SO_MARK
 	if (options & F_MARK) {
@@ -745,6 +780,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 					
 					switch (c->cmsg_level) {
 					case SOL_SOCKET:
+						printf("recv: ");
 						printf("SOL_SOCKET ");
 						switch (c->cmsg_type) {
 						case SO_TIMESTAMP: {
@@ -782,6 +818,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 							printf("type %d", c->cmsg_type);
 							break;
 						}
+						printf("\n");
 						break;
 					}
 					if (c->cmsg_level == SOL_SOCKET &&
