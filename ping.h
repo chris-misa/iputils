@@ -64,6 +64,8 @@
 #include <linux/types.h>
 #include <linux/errqueue.h>
 
+#include <linux/net_tstamp.h>
+
 #include "in6_flowlabel.h"
 #include "SNAPSHOT.h"
 

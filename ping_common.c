@@ -37,6 +37,7 @@
 #endif
 
 int options;
+int so_timestamping_flags;
 
 int mark;
 int sndbuf;
@@ -519,6 +520,13 @@ void setup(socket_st *sock)
 			fprintf(stderr, "Warning: no SO_TIMESTAMP support, falling back to SIOCGSTAMP\n");
 	}
 #endif
+#ifdef SO_TIMESTAMPING
+	// Hardcode this for now
+	so_timestamping_flags = SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RAW_HARDWARE;
+	if (setsockopt(sock->fd, SOL_SOCKET, SO_TIMESTAMPING, &so_timestamping_flags, sizeof(so_timestamping_flags)) < 0)
+		fprintf(stderr, "Warning: no SO_TIMESTAMPING support\n");
+	fprintf(stderr, "Set SO_TIMESTAMPING\n");
+#endif
 #ifdef SO_MARK
 	if (options & F_MARK) {
 		int ret;
@@ -734,9 +742,6 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
-
-
-
 					
 					switch (c->cmsg_level) {
 					case SOL_SOCKET:
@@ -779,12 +784,11 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 						}
 						break;
 					}
-					if (c->cmsg_level != SOL_SOCKET ||
-					    c->cmsg_type != SO_TIMESTAMP)
-						continue;
-					if (c->cmsg_len < CMSG_LEN(sizeof(struct timeval)))
-						continue;
-					recv_timep = (struct timeval*)CMSG_DATA(c);
+					if (c->cmsg_level == SOL_SOCKET &&
+					    c->cmsg_type == SO_TIMESTAMP &&
+					    c->cmsg_len < CMSG_LEN(sizeof(struct timeval))) {
+						recv_timep = (struct timeval*)CMSG_DATA(c);
+					}
 				}
 #endif
 
