@@ -526,7 +526,12 @@ void setup(socket_st *sock)
 #endif
 #ifdef SO_TIMESTAMPING
 	// Hardcode this for now
-	so_timestamping_flags = SOF_TIMESTAMPING_RX_HARDWARE | SOF_TIMESTAMPING_RX_SOFTWARE | SOF_TIMESTAMPING_RAW_HARDWARE | SOF_TIMESTAMPING_SOFTWARE;
+	so_timestamping_flags = SOF_TIMESTAMPING_RX_HARDWARE
+				| SOF_TIMESTAMPING_RX_SOFTWARE
+				| SOF_TIMESTAMPING_TX_HARDWARE
+				| SOF_TIMESTAMPING_TX_SOFTWARE
+				| SOF_TIMESTAMPING_RAW_HARDWARE
+				| SOF_TIMESTAMPING_SOFTWARE;
 	if (setsockopt(sock->fd, SOL_SOCKET, SO_TIMESTAMPING, &so_timestamping_flags, sizeof(so_timestamping_flags)) < 0)
 		fprintf(stderr, "Warning: no SO_TIMESTAMPING support\n");
 	fprintf(stderr, "Set SO_TIMESTAMPING\n");
@@ -659,6 +664,53 @@ int contains_pattern_in_payload(__u8 *ptr)
 	return 1;
 }
 
+void print_cmsg_data(struct cmsghdr *c)
+{
+	switch (c->cmsg_level) {
+	case SOL_SOCKET:
+		printf("recv: ");
+		printf("SOL_SOCKET ");
+		switch (c->cmsg_type) {
+		case SO_TIMESTAMP: {
+			struct timeval *stamp =
+				(struct timeval *)CMSG_DATA(c);
+			printf("SO_TIMESTAMP %ld.%06ld",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_usec);
+			break;
+		}
+		case SO_TIMESTAMPNS: {
+			struct timespec *stamp =
+				(struct timespec *)CMSG_DATA(c);
+			printf("SO_TIMESTAMPNS %ld.%09ld",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_nsec);
+			break;
+		}
+		case SO_TIMESTAMPING: {
+			struct timespec *stamp =
+				(struct timespec *)CMSG_DATA(c);
+			printf("SO_TIMESTAMPING ");
+			printf("SW %ld.%09ld ",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_nsec);
+			stamp++;
+			/* skip deprecated HW transformed */
+			stamp++;
+			printf("HW raw %ld.%09ld",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_nsec);
+			break;
+		}
+		default:
+			printf("type %d", c->cmsg_type);
+			break;
+		}
+		printf("\n");
+		break;
+	}
+}
+
 void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packlen)
 {
 	char addrbuf[128];
@@ -762,6 +814,16 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 				 * on the socket, try to read the error queue.
 				 * Otherwise, give up.
 				 */
+				cc = recvmsg(sock->fd, &msg, MSG_ERRQUEUE | MSG_DONTWAIT);
+				if (cc >= 0) {
+					printf("Read errqueue:\n");
+
+					for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+						print_cmsg_data(c);
+					}
+					continue;
+				}
+
 				if ((errno == EAGAIN && !recv_error) ||
 				    errno == EINTR)
 					break;
@@ -778,49 +840,8 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
 					
-					switch (c->cmsg_level) {
-					case SOL_SOCKET:
-						printf("recv: ");
-						printf("SOL_SOCKET ");
-						switch (c->cmsg_type) {
-						case SO_TIMESTAMP: {
-							struct timeval *stamp =
-								(struct timeval *)CMSG_DATA(c);
-							printf("SO_TIMESTAMP %ld.%06ld",
-							       (long)stamp->tv_sec,
-							       (long)stamp->tv_usec);
-							break;
-						}
-						case SO_TIMESTAMPNS: {
-							struct timespec *stamp =
-								(struct timespec *)CMSG_DATA(c);
-							printf("SO_TIMESTAMPNS %ld.%09ld",
-							       (long)stamp->tv_sec,
-							       (long)stamp->tv_nsec);
-							break;
-						}
-						case SO_TIMESTAMPING: {
-							struct timespec *stamp =
-								(struct timespec *)CMSG_DATA(c);
-							printf("SO_TIMESTAMPING ");
-							printf("SW %ld.%09ld ",
-							       (long)stamp->tv_sec,
-							       (long)stamp->tv_nsec);
-							stamp++;
-							/* skip deprecated HW transformed */
-							stamp++;
-							printf("HW raw %ld.%09ld",
-							       (long)stamp->tv_sec,
-							       (long)stamp->tv_nsec);
-							break;
-						}
-						default:
-							printf("type %d", c->cmsg_type);
-							break;
-						}
-						printf("\n");
-						break;
-					}
+					print_cmsg_data(c);
+
 					if (c->cmsg_level == SOL_SOCKET &&
 					    c->cmsg_type == SO_TIMESTAMP &&
 					    c->cmsg_len < CMSG_LEN(sizeof(struct timeval))) {
