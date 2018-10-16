@@ -712,10 +712,6 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 
 			cc = recvmsg(sock->fd, &msg, polling);
 
-/************ gettimeofday right after recv ping rather than reading timestamps *****/
-      gettimeofday(&recv_time, NULL);
-      recv_timep = &recv_time;
-
 			polling = MSG_DONTWAIT;
 
 			if (cc < 0) {
@@ -736,10 +732,53 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 				}
 			} else {
 
-/******** original code to read timestamps *********/
-/*
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+
+
+
+					
+					switch (c->cmsg_level) {
+					case SOL_SOCKET:
+						printf("SOL_SOCKET ");
+						switch (c->cmsg_type) {
+						case SO_TIMESTAMP: {
+							struct timeval *stamp =
+								(struct timeval *)CMSG_DATA(c);
+							printf("SO_TIMESTAMP %ld.%06ld",
+							       (long)stamp->tv_sec,
+							       (long)stamp->tv_usec);
+							break;
+						}
+						case SO_TIMESTAMPNS: {
+							struct timespec *stamp =
+								(struct timespec *)CMSG_DATA(c);
+							printf("SO_TIMESTAMPNS %ld.%09ld",
+							       (long)stamp->tv_sec,
+							       (long)stamp->tv_nsec);
+							break;
+						}
+						case SO_TIMESTAMPING: {
+							struct timespec *stamp =
+								(struct timespec *)CMSG_DATA(c);
+							printf("SO_TIMESTAMPING ");
+							printf("SW %ld.%09ld ",
+							       (long)stamp->tv_sec,
+							       (long)stamp->tv_nsec);
+							stamp++;
+							/* skip deprecated HW transformed */
+							stamp++;
+							printf("HW raw %ld.%09ld",
+							       (long)stamp->tv_sec,
+							       (long)stamp->tv_nsec);
+							break;
+						}
+						default:
+							printf("type %d", c->cmsg_type);
+							break;
+						}
+						break;
+					}
 					if (c->cmsg_level != SOL_SOCKET ||
 					    c->cmsg_type != SO_TIMESTAMP)
 						continue;
@@ -755,7 +794,6 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 						gettimeofday(&recv_time, NULL);
 					recv_timep = &recv_time;
 				}
-*/
 
 				not_ours = fset->parse_reply(sock, &msg, cc, addrbuf, recv_timep);
 			}
