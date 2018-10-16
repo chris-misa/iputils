@@ -36,6 +36,11 @@
 #define HZ sysconf(_SC_CLK_TCK)
 #endif
 
+struct timespec hw_send_time;
+struct timespec hw_recv_time;
+#define HW_SEND_KEY 1
+#define HW_RECV_KEY 2
+
 int options;
 int so_timestamping_flags;
 
@@ -335,6 +340,71 @@ void print_timestamp(void)
 }
 
 /*
+ * Print timestamp info from cmsg data
+ */
+void print_cmsg_data(struct cmsghdr *c, int dir)
+{
+	switch (c->cmsg_level) {
+	case SOL_SOCKET:
+		if (dir == HW_SEND_KEY) {
+			printf("send: ");
+		} else if (dir == HW_RECV_KEY) {
+			printf("recv: ");
+		}
+		printf("SOL_SOCKET ");
+		switch (c->cmsg_type) {
+		case SO_TIMESTAMP: {
+			struct timeval *stamp =
+				(struct timeval *)CMSG_DATA(c);
+			printf("SO_TIMESTAMP %ld.%06ld",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_usec);
+			break;
+		}
+		case SO_TIMESTAMPNS: {
+			struct timespec *stamp =
+				(struct timespec *)CMSG_DATA(c);
+			printf("SO_TIMESTAMPNS %ld.%09ld",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_nsec);
+			break;
+		}
+		case SO_TIMESTAMPING: {
+			struct timespec *stamp =
+				(struct timespec *)CMSG_DATA(c);
+			printf("SO_TIMESTAMPING ");
+			printf("SW %ld.%09ld ",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_nsec);
+			stamp++;
+			/* skip deprecated HW transformed */
+			stamp++;
+			printf("HW raw %ld.%09ld",
+			       (long)stamp->tv_sec,
+			       (long)stamp->tv_nsec);
+			if (dir == HW_SEND_KEY) {
+				hw_send_time.tv_sec = stamp->tv_sec;
+				hw_send_time.tv_nsec = stamp->tv_nsec;
+			} else if (dir ==HW_RECV_KEY) {
+				hw_recv_time.tv_sec = stamp->tv_sec;
+				hw_recv_time.tv_nsec = stamp->tv_nsec;
+				tspecsub(&hw_recv_time, &hw_send_time);
+				printf("HW RTT %ld.%09ld",
+				       (long)hw_recv_time.tv_sec,
+				       (long)hw_recv_time.tv_nsec);
+			}
+			break;
+		}
+		default:
+			printf("type %d", c->cmsg_type);
+			break;
+		}
+		printf("\n");
+		break;
+	}
+}
+
+/*
  * pinger --
  * 	Compose and transmit an ICMP ECHO REQUEST packet.  The IP packet
  * will be added on by the kernel.  The ID field is our UNIX process ID,
@@ -347,6 +417,14 @@ int pinger(ping_func_set_st *fset, socket_st *sock)
 	static int oom_count;
 	static int tokens;
 	int i;
+	char addrbuf[128];
+	char ans_data[4096];
+	char packet[128];
+	int packlen = 128;
+	struct iovec iov;
+	struct msghdr msg;
+	struct cmsghdr *c;
+	int cc;
 
 	/* Have we already sent enough? If we have, return an arbitrary positive value. */
 	if (exiting || (npackets && ntransmitted >= npackets && !deadline))
@@ -390,6 +468,31 @@ int pinger(ping_func_set_st *fset, socket_st *sock)
 resend:
 	i = fset->send_probe(sock, outpack, sizeof(outpack));
 
+	// Look for hardware timestamp in error queue
+	fprintf(stderr, "Reading errqueue\n");
+	usleep(10); // Wait for the message to propegate back
+	do {
+		iov.iov_base = packet;
+		iov.iov_len = packlen;
+		memset(&msg, 0, sizeof(msg));
+		msg.msg_name = addrbuf;
+		msg.msg_namelen = sizeof(addrbuf);
+		msg.msg_iov = &iov;
+		msg.msg_iovlen = 1;
+		msg.msg_control = ans_data;
+		msg.msg_controllen = sizeof(ans_data);
+		cc = recvmsg(sock->fd, &msg, MSG_ERRQUEUE);
+		if (cc >= 0) {
+			printf("Read errqueue:\n");
+
+			for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+				print_cmsg_data(c, HW_SEND_KEY);
+			}
+		} else {
+			printf("Failed to read send timestamp from error queue\n");
+		}
+	} while (cc >= 0);
+
 	if (i == 0) {
 		oom_count = 0;
 		advance_ntransmitted();
@@ -402,6 +505,8 @@ resend:
 		}
 		return interval - tokens;
 	}
+
+
 
 	/* And handle various errors... */
 	if (i > 0) {
@@ -663,51 +768,6 @@ int contains_pattern_in_payload(__u8 *ptr)
 	return 1;
 }
 
-void print_cmsg_data(struct cmsghdr *c, char *prefix)
-{
-	switch (c->cmsg_level) {
-	case SOL_SOCKET:
-		printf("%s SOL_SOCKET ", prefix);
-		switch (c->cmsg_type) {
-		case SO_TIMESTAMP: {
-			struct timeval *stamp =
-				(struct timeval *)CMSG_DATA(c);
-			printf("SO_TIMESTAMP %ld.%06ld",
-			       (long)stamp->tv_sec,
-			       (long)stamp->tv_usec);
-			break;
-		}
-		case SO_TIMESTAMPNS: {
-			struct timespec *stamp =
-				(struct timespec *)CMSG_DATA(c);
-			printf("SO_TIMESTAMPNS %ld.%09ld",
-			       (long)stamp->tv_sec,
-			       (long)stamp->tv_nsec);
-			break;
-		}
-		case SO_TIMESTAMPING: {
-			struct timespec *stamp =
-				(struct timespec *)CMSG_DATA(c);
-			printf("SO_TIMESTAMPING ");
-			printf("SW %ld.%09ld ",
-			       (long)stamp->tv_sec,
-			       (long)stamp->tv_nsec);
-			stamp++;
-			/* skip deprecated HW transformed */
-			stamp++;
-			printf("HW raw %ld.%09ld",
-			       (long)stamp->tv_sec,
-			       (long)stamp->tv_nsec);
-			break;
-		}
-		default:
-			printf("type %d", c->cmsg_type);
-			break;
-		}
-		printf("\n");
-		break;
-	}
-}
 
 void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packlen)
 {
@@ -812,15 +872,6 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 				 * on the socket, try to read the error queue.
 				 * Otherwise, give up.
 				 */
-				cc = recvmsg(sock->fd, &msg, MSG_ERRQUEUE | MSG_DONTWAIT);
-				if (cc >= 0) {
-					printf("Read errqueue:\n");
-
-					for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
-						print_cmsg_data(c, "send: ");
-					}
-					continue;
-				}
 
 				if ((errno == EAGAIN && !recv_error) ||
 				    errno == EINTR)
@@ -838,7 +889,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
 					
-					print_cmsg_data(c, "recv: ");
+					print_cmsg_data(c, HW_RECV_KEY);
 
 					if (c->cmsg_level == SOL_SOCKET &&
 					    c->cmsg_type == SO_TIMESTAMP &&

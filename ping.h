@@ -227,6 +227,19 @@ static inline void tvsub(struct timeval *out, struct timeval *in)
 	out->tv_sec -= in->tv_sec;
 }
 
+
+/*
+ * Subtract two timespecs
+ */
+static inline void tspecsub(struct timespec *out, struct timespec *in)
+{
+	if ((out->tv_nsec -= in->tv_nsec) < 0) {
+		--out->tv_sec;
+		out->tv_nsec += 1000000000;
+	}
+	out->tv_sec -= in->tv_sec;
+}
+
 static inline void set_signal(int signo, void (*handler)(int))
 {
 	struct sigaction sa;
