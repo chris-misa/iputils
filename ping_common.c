@@ -663,11 +663,11 @@ int contains_pattern_in_payload(__u8 *ptr)
 	return 1;
 }
 
-void print_cmsg_data(struct cmsghdr *c)
+void print_cmsg_data(struct cmsghdr *c, char *prefix)
 {
 	switch (c->cmsg_level) {
 	case SOL_SOCKET:
-		printf("SOL_SOCKET ");
+		printf("%s SOL_SOCKET ", prefix);
 		switch (c->cmsg_type) {
 		case SO_TIMESTAMP: {
 			struct timeval *stamp =
@@ -817,8 +817,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 					printf("Read errqueue:\n");
 
 					for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
-						printf("send: ");
-						print_cmsg_data(c);
+						print_cmsg_data(c, "send: ");
 					}
 					continue;
 				}
@@ -839,8 +838,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
 					
-					printf("recv: ");
-					print_cmsg_data(c);
+					print_cmsg_data(c, "recv: ");
 
 					if (c->cmsg_level == SOL_SOCKET &&
 					    c->cmsg_type == SO_TIMESTAMP &&
