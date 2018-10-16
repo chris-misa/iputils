@@ -496,7 +496,6 @@ void setup(socket_st *sock)
 	struct ifreq hwtstamp;
 	struct hwtstamp_config hwconfig;
 	char *interface = "eno1";
-	int res;
 
 	if ((options & F_FLOOD) && !(options & F_INTERVAL))
 		interval = 0;
@@ -668,7 +667,6 @@ void print_cmsg_data(struct cmsghdr *c)
 {
 	switch (c->cmsg_level) {
 	case SOL_SOCKET:
-		printf("recv: ");
 		printf("SOL_SOCKET ");
 		switch (c->cmsg_type) {
 		case SO_TIMESTAMP: {
@@ -819,6 +817,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 					printf("Read errqueue:\n");
 
 					for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
+						printf("send: ");
 						print_cmsg_data(c);
 					}
 					continue;
@@ -840,6 +839,7 @@ void main_loop(ping_func_set_st *fset, socket_st *sock, __u8 *packet, int packle
 #ifdef SO_TIMESTAMP
 				for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
 					
+					printf("recv: ");
 					print_cmsg_data(c);
 
 					if (c->cmsg_level == SOL_SOCKET &&
