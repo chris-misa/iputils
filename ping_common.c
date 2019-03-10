@@ -346,13 +346,9 @@ void print_cmsg_data(struct cmsghdr *c, int dir)
 {
 	switch (c->cmsg_level) {
 	case SOL_SOCKET:
-		if (dir == HW_SEND_KEY) {
-			printf("send: ");
-		} else if (dir == HW_RECV_KEY) {
-			printf("recv: ");
-		}
-		printf("SOL_SOCKET ");
+		//printf("SOL_SOCKET ");
 		switch (c->cmsg_type) {
+		/*
 		case SO_TIMESTAMP: {
 			struct timeval *stamp =
 				(struct timeval *)CMSG_DATA(c);
@@ -369,37 +365,31 @@ void print_cmsg_data(struct cmsghdr *c, int dir)
 			       (long)stamp->tv_nsec);
 			break;
 		}
+		*/
 		case SO_TIMESTAMPING: {
 			struct timespec *stamp =
 				(struct timespec *)CMSG_DATA(c);
-			printf("SO_TIMESTAMPING ");
-			printf("SW %ld.%09ld ",
-			       (long)stamp->tv_sec,
-			       (long)stamp->tv_nsec);
+			/* skip deprecated SW and HW transformed */
 			stamp++;
-			/* skip deprecated HW transformed */
 			stamp++;
-			printf("HW raw %ld.%09ld",
-			       (long)stamp->tv_sec,
-			       (long)stamp->tv_nsec);
 			if (dir == HW_SEND_KEY) {
 				hw_send_time.tv_sec = stamp->tv_sec;
 				hw_send_time.tv_nsec = stamp->tv_nsec;
-			} else if (dir ==HW_RECV_KEY) {
+			} else if (dir == HW_RECV_KEY) {
 				hw_recv_time.tv_sec = stamp->tv_sec;
 				hw_recv_time.tv_nsec = stamp->tv_nsec;
 				tspecsub(&hw_recv_time, &hw_send_time);
-				printf("HW RTT %ld.%09ld",
+				printf("[%ld.%09ld] HW RTT %ld.%09ld\n",
+				       (long)stamp->tv_sec,
+				       (long)stamp->tv_nsec,
 				       (long)hw_recv_time.tv_sec,
 				       (long)hw_recv_time.tv_nsec);
 			}
 			break;
 		}
 		default:
-			printf("type %d", c->cmsg_type);
 			break;
 		}
-		printf("\n");
 		break;
 	}
 }
@@ -469,7 +459,7 @@ resend:
 	i = fset->send_probe(sock, outpack, sizeof(outpack));
 
 	// Look for hardware timestamp in error queue
-	fprintf(stderr, "Reading errqueue\n");
+	// fprintf(stderr, "Reading errqueue\n");
 	usleep(10); // Wait for the message to propegate back
 	do {
 		iov.iov_base = packet;
@@ -483,13 +473,13 @@ resend:
 		msg.msg_controllen = sizeof(ans_data);
 		cc = recvmsg(sock->fd, &msg, MSG_ERRQUEUE);
 		if (cc >= 0) {
-			printf("Read errqueue:\n");
+			// printf("Read errqueue:\n");
 
 			for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c)) {
 				print_cmsg_data(c, HW_SEND_KEY);
 			}
 		} else {
-			printf("Failed to read send timestamp from error queue\n");
+			// printf("Failed to read send timestamp from error queue\n");
 		}
 	} while (cc >= 0);
 
